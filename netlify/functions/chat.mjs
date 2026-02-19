@@ -1,13 +1,11 @@
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const chunksData = require("./chunks-data.json");
+import { readFileSync } from "fs";
+const chunksData = JSON.parse(readFileSync(new URL("./chunks-data.json", import.meta.url), "utf8"));
 
 const SYSTEM_PROMPT = `You are an expert Army National Guard (ARNG) recruiting assistant. Your job is to help recruiters and potential applicants understand eligibility requirements, waiver processes, and enlistment criteria based on official ARNG regulations and policy memoranda.
 
 IMPORTANT GUIDELINES:
 - Always cite the specific document (SMOM, AR, AOC chapter, WASP, etc.) that supports your answer
-- If something requires a waiver, explain the waiver authority and process
-- If you are unsure about something or it is not covered in the provided documents, say so clearly
+- If something requires a waiver, explain the waiver authority and process- If you are unsure about something or it is not covered in the provided documents, say so clearly
 - Be precise with ages, scores, timeframes, and other specific criteria
 - When discussing disqualifiers, distinguish between waiverable and non-waiverable conditions
 - Use plain language but include the regulatory references
@@ -205,4 +203,5 @@ export default async (req) => {
 
 export const config = {
   path: "/api/chat",
+    includedFiles: ["chunks-data.json"],
 };
