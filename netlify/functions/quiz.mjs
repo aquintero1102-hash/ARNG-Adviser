@@ -1,9 +1,12 @@
-import { createRequire } from "module";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { getStore } from "@netlify/blobs";
-const require = createRequire(import.meta.url);
-const chunksData = require("./chunks-data.json");
 
-// Topic categories with associated chunk IDs
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const chunksData = JSON.parse(readFileSync(join(__dirname, "chunks-data.json"), "utf8"));
+
 const QUIZ_TOPICS = {
   age: { label: "Age Requirements", ids: [19, 30, 20, 31] },
   asvab: { label: "ASVAB / Test Scores", ids: [19, 30, 33, 22] },
@@ -22,22 +25,16 @@ const QUIZ_TOPICS = {
   general: { label: "General Eligibility", ids: [19, 30, 21, 32, 15] },
 };
 
-// Get available topics list
 function getTopicsList() {
-  return Object.entries(QUIZ_TOPICS).map(([key, val]) => ({
-    id: key,
-    label: val.label,
-  }));
+  return Object.entries(QUIZ_TOPICS).map(([key, val]) => ({ id: key, label: val.label }));
 }
 
-// Build context from chunks for a topic
 function buildContext(topicId) {
   const topic = QUIZ_TOPICS[topicId] || QUIZ_TOPICS.general;
   const { chunks } = chunksData;
   let context = "";
   let totalChars = 0;
-  const maxChars = 40000; // Smaller budget for quiz — we need room for the prompt
-
+  const maxChars = 40000;
   for (const id of topic.ids) {
     const chunk = chunks.find((c) => c.id === id);
     if (!chunk) continue;
@@ -46,17 +43,14 @@ function buildContext(topicId) {
     context += entry;
     totalChars += entry.length;
   }
-
   return { context, label: topic.label };
 }
 
-// Log quiz result to Netlify Blobs
 async function logQuizResult(topic, topicLabel, correct, question) {
   try {
     const store = getStore("search-analytics");
     const now = new Date();
     const key = `quiz/${now.toISOString().slice(0, 10)}/${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
-
     await store.setJSON(key, {
       type: "quiz",
       topic: topic,
@@ -96,7 +90,6 @@ export default async (req) => {
 
   const { action } = body;
 
-  // Return available topics
   if (action === "topics") {
     return new Response(
       JSON.stringify({ topics: getTopicsList() }),
@@ -104,7 +97,6 @@ export default async (req) => {
     );
   }
 
-  // Generate a quiz question
   if (action === "generate") {
     const topicId = body.topic || "general";
     const { context, label } = buildContext(topicId);
@@ -163,8 +155,6 @@ correctIndex is 0-3 corresponding to options A-D.${avoidClause}`,
       }
 
       const text = data.content?.[0]?.text || "";
-
-      // Parse JSON from response (handle markdown code blocks)
       let parsed;
       try {
         const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
@@ -196,7 +186,6 @@ correctIndex is 0-3 corresponding to options A-D.${avoidClause}`,
     }
   }
 
-  // Log a quiz answer
   if (action === "answer") {
     const { topic, topicLabel, correct, question } = body;
     await logQuizResult(topic || "unknown", topicLabel || "Unknown", correct || false, question || "");

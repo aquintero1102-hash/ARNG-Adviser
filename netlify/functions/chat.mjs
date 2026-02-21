@@ -1,7 +1,11 @@
-import { createRequire } from "module";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { getStore } from "@netlify/blobs";
-const require = createRequire(import.meta.url);
-const chunksData = require("./chunks-data.json");
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const chunksData = JSON.parse(readFileSync(join(__dirname, "chunks-data.json"), "utf8"));
 
 const SYSTEM_PROMPT = `You are an expert Army National Guard (ARNG) recruiting assistant. Your job is to help recruiters and potential applicants understand eligibility requirements, waiver processes, and enlistment criteria based on official ARNG regulations and policy memoranda.
 
@@ -17,7 +21,6 @@ IMPORTANT GUIDELINES:
 You have access to the following regulatory documents:
 `;
 
-// Topic labels for analytics
 const TOPIC_LABELS = {
   age: "Age Requirements",
   asvab: "ASVAB / Test Scores",
@@ -58,7 +61,6 @@ const TOPIC_LABELS = {
   general: "General Eligibility",
 };
 
-// Keyword-based chunk routing with topic tags
 const ROUTING_RULES = [
   { topic: "age", keywords: ["age", "old", "years old", "how old", "minimum age", "maximum age", "too old", "too young", "17", "18", "35", "42"], ids: [19, 30, 20, 31] },
   { topic: "asvab", keywords: ["asvab", "afqt", "test score", "gt score", "line score", "aptitude"], ids: [19, 30, 33, 22] },
@@ -117,23 +119,19 @@ function selectChunksByKeywords(question) {
     }
   }
 
-  // Default: general eligibility docs if nothing specific matched
   if (selectedIds.size === 0) {
     [19, 30, 21, 32, 15, 1].forEach((id) => selectedIds.add(id));
     matchedTopics.add("general");
   }
 
-  // Cap at 6 chunks
   return { ids: [...selectedIds].slice(0, 6), topics: [...matchedTopics] };
 }
 
-// Log search to Netlify Blobs (fire-and-forget, non-blocking)
 async function logSearch(question, topics) {
   try {
     const store = getStore("search-analytics");
     const now = new Date();
     const key = `log/${now.toISOString().slice(0, 10)}/${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
-    
     await store.setJSON(key, {
       q: question.slice(0, 500),
       topics: topics,
@@ -142,12 +140,10 @@ async function logSearch(question, topics) {
       day: now.toISOString().slice(0, 10),
     });
   } catch (e) {
-    // Silent fail — don't break chat if logging fails
     console.error("Analytics log error:", e.message);
   }
 }
 
-// Context budget: ~120K chars max
 const MAX_CONTEXT_CHARS = 120000;
 
 export default async (req) => {
@@ -185,13 +181,9 @@ export default async (req) => {
   const { chunks } = chunksData;
 
   try {
-    // Step 1: Instant keyword-based chunk selection
     const { ids: selectedIds, topics: matchedTopics } = selectChunksByKeywords(question);
-
-    // Step 1.5: Log search (non-blocking)
     logSearch(question, matchedTopics);
 
-    // Step 2: Build context with budget limit
     let contextDocs = "";
     let totalChars = 0;
     const usedIds = [];
@@ -199,7 +191,6 @@ export default async (req) => {
     for (const id of selectedIds) {
       const chunk = chunks.find((c) => c.id === id);
       if (!chunk) continue;
-
       const entry = "\n=== " + chunk.title + " ===\n" + chunk.text + "\n";
       if (totalChars + entry.length > MAX_CONTEXT_CHARS) {
         const remaining = MAX_CONTEXT_CHARS - totalChars;
@@ -209,25 +200,18 @@ export default async (req) => {
         }
         break;
       }
-
       contextDocs += entry;
       totalChars += entry.length;
       usedIds.push(id);
     }
 
-    const docTitles = usedIds
-      .map((id) => chunks.find((c) => c.id === id)?.title)
-      .filter(Boolean)
-      .join(", ");
-
-    // Build conversation messages
+    const docTitles = usedIds.map((id) => chunks.find((c) => c.id === id)?.title).filter(Boolean).join(", ");
     const apiMessages = [];
     for (const msg of history.slice(-4)) {
       apiMessages.push({ role: msg.role, content: msg.content });
     }
     apiMessages.push({ role: "user", content: question });
 
-    // Step 3: Single API call
     const answerRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -245,7 +229,6 @@ export default async (req) => {
 
     const answerData = await answerRes.json();
 
-    // Surface API errors clearly
     if (answerData.error) {
       return new Response(
         JSON.stringify({ error: "Anthropic API: " + (answerData.error.message || JSON.stringify(answerData.error)) }),
@@ -254,10 +237,7 @@ export default async (req) => {
     }
 
     const answer = answerData.content?.[0]?.text || "No response content returned from API. Raw: " + JSON.stringify(answerData).slice(0, 300);
-
-    const sourceDocs = usedIds
-      .map((id) => chunks.find((c) => c.id === id)?.title)
-      .filter(Boolean);
+    const sourceDocs = usedIds.map((id) => chunks.find((c) => c.id === id)?.title).filter(Boolean);
 
     return new Response(
       JSON.stringify({ answer, sources: sourceDocs }),
