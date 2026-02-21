@@ -1,11 +1,9 @@
 import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
 import { getStore } from "@netlify/blobs";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const chunksData = JSON.parse(readFileSync(join(__dirname, "chunks-data.json"), "utf8"));
+const chunksData = JSON.parse(
+  readFileSync(new URL("./chunks-data.json", import.meta.url), "utf8")
+);
 
 const SYSTEM_PROMPT = `You are an expert Army National Guard (ARNG) recruiting assistant. Your job is to help recruiters and potential applicants understand eligibility requirements, waiver processes, and enlistment criteria based on official ARNG regulations and policy memoranda.
 
